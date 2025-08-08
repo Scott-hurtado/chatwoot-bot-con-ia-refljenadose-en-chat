@@ -43,6 +43,8 @@ class ChatwootService {
     private apiToken: string;
     private inboxIdentifier: string;
     private accountId: string;
+    // Cache para conversaciones activas
+    private conversationCache = new Map<string, number>();
 
     constructor() {
         this.baseURL = process.env.CHATWOOT_URL || '';
@@ -53,6 +55,12 @@ class ChatwootService {
         if (!this.baseURL || !this.apiToken || !this.inboxIdentifier) {
             console.error('❌ Variables de Chatwoot no configuradas correctamente');
         }
+        
+        // Limpiar cache cada 30 minutos
+        setInterval(() => {
+            this.conversationCache.clear();
+            console.log('🧹 Cache de conversaciones limpiado');
+        }, 30 * 60 * 1000);
     }
 
     /**
@@ -252,6 +260,10 @@ class ChatwootService {
             );
 
             console.log(`✅ Conversación creada exitosamente: ${response.data.id}`);
+            
+            // Guardar en cache
+            this.conversationCache.set(formattedPhone, response.data.id);
+            
             return response.data;
         } catch (error: any) {
             console.error('❌ Error creando conversación:', {
@@ -289,11 +301,43 @@ class ChatwootService {
     }
 
     /**
+     * Enviar mensaje saliente (respuesta del bot) a Chatwoot
+     */
+    async sendOutgoingMessage(conversationId: number, message: string): Promise<any> {
+        try {
+            const messageData: ChatwootMessage = {
+                content: message,
+                message_type: 'outgoing'
+            };
+
+            const response = await axios.post(
+                `${this.baseURL}/api/v1/accounts/${this.accountId}/conversations/${conversationId}/messages`,
+                messageData,
+                { headers: this.getHeaders() }
+            );
+
+            console.log(`📤 Respuesta del bot enviada a Chatwoot (Conv: ${conversationId})`);
+            return response.data;
+        } catch (error: any) {
+            console.error('❌ Error enviando respuesta del bot:', error.response?.data || error.message);
+            throw error;
+        }
+    }
+
+    /**
      * Buscar conversación existente por número de teléfono
      */
     async findConversationByPhone(phoneNumber: string): Promise<any> {
         try {
             const formattedPhone = this.formatPhoneToE164(phoneNumber);
+            
+            // Primero revisar el cache
+            const cachedConversationId = this.conversationCache.get(formattedPhone);
+            if (cachedConversationId) {
+                console.log(`🔍 Conversación encontrada en cache: ${cachedConversationId}`);
+                return { id: cachedConversationId };
+            }
+            
             console.log(`🔍 Buscando conversación para: ${formattedPhone}`);
             
             const response = await axios.get(
@@ -313,6 +357,8 @@ class ChatwootService {
 
             if (conversation) {
                 console.log(`✅ Conversación encontrada: ${conversation.id}`);
+                // Guardar en cache
+                this.conversationCache.set(formattedPhone, conversation.id);
                 return conversation;
             } else {
                 console.log(`ℹ️ No se encontró conversación abierta para: ${formattedPhone}`);
@@ -325,11 +371,33 @@ class ChatwootService {
     }
 
     /**
-     * Procesar mensaje completo con mejor manejo de errores
+     * Obtener ID de conversación para un número de teléfono
      */
-    async processMessage(phoneNumber: string, message: string, userName?: string): Promise<boolean> {
+    async getConversationId(phoneNumber: string): Promise<number | null> {
         try {
-            console.log(`📨 Procesando mensaje de ${phoneNumber}: ${message.substring(0, 50)}...`);
+            const formattedPhone = this.formatPhoneToE164(phoneNumber);
+            
+            // Revisar cache primero
+            const cachedId = this.conversationCache.get(formattedPhone);
+            if (cachedId) {
+                return cachedId;
+            }
+            
+            // Buscar conversación activa
+            const conversation = await this.findConversationByPhone(phoneNumber);
+            return conversation?.id || null;
+        } catch (error) {
+            console.error('❌ Error obteniendo conversation ID:', error);
+            return null;
+        }
+    }
+
+    /**
+     * Procesar mensaje entrante (del usuario)
+     */
+    async processIncomingMessage(phoneNumber: string, message: string, userName?: string): Promise<boolean> {
+        try {
+            console.log(`📨 Procesando mensaje entrante de ${phoneNumber}: ${message.substring(0, 50)}...`);
             
             // 1. Buscar conversación existente primero
             let conversation = await this.findConversationByPhone(phoneNumber);
@@ -337,7 +405,7 @@ class ChatwootService {
             if (conversation) {
                 // Si ya existe conversación, enviar el mensaje directamente
                 await this.sendIncomingMessage(conversation.id, message);
-                console.log(`✅ Mensaje enviado a conversación existente: ${conversation.id}`);
+                console.log(`✅ Mensaje entrante enviado a conversación existente: ${conversation.id}`);
                 return true;
             }
             
@@ -369,13 +437,44 @@ class ChatwootService {
             // 4. Enviar mensaje a la nueva conversación
             await this.sendIncomingMessage(conversation.id, message);
 
-            console.log(`✅ Mensaje procesado exitosamente para ${phoneNumber}`);
+            console.log(`✅ Mensaje entrante procesado exitosamente para ${phoneNumber}`);
             return true;
             
         } catch (error) {
-            console.error('❌ Error procesando mensaje en Chatwoot:', error);
+            console.error('❌ Error procesando mensaje entrante:', error);
             return false;
         }
+    }
+
+    /**
+     * Procesar respuesta del bot (mensaje saliente)
+     */
+    async processBotResponse(phoneNumber: string, botResponse: string): Promise<boolean> {
+        try {
+            console.log(`🤖 Enviando respuesta del bot a Chatwoot para ${phoneNumber}: ${botResponse.substring(0, 50)}...`);
+            
+            const conversationId = await this.getConversationId(phoneNumber);
+            
+            if (!conversationId) {
+                console.log(`⚠️ No se encontró conversación para enviar respuesta del bot: ${phoneNumber}`);
+                return false;
+            }
+
+            await this.sendOutgoingMessage(conversationId, botResponse);
+            console.log(`✅ Respuesta del bot enviada a Chatwoot (Conv: ${conversationId})`);
+            return true;
+            
+        } catch (error) {
+            console.error('❌ Error enviando respuesta del bot a Chatwoot:', error);
+            return false;
+        }
+    }
+
+    /**
+     * Método de compatibilidad (mantiene la funcionalidad anterior)
+     */
+    async processMessage(phoneNumber: string, message: string, userName?: string): Promise<boolean> {
+        return await this.processIncomingMessage(phoneNumber, message, userName);
     }
 
     /**

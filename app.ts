@@ -48,17 +48,36 @@ const detectIntent = (text: string): string | null => {
     return null
 }
 
-// Función helper para enviar a Chatwoot
-const sendToChatwoot = async (phoneNumber: string, message: string, userName?: string) => {
+// Función helper para enviar mensaje entrante a Chatwoot
+const sendIncomingToChatwoot = async (phoneNumber: string, message: string, userName?: string) => {
     try {
-        await chatwootService.processMessage(phoneNumber, message, userName)
-        console.log(`📨 Mensaje enviado a Chatwoot: ${phoneNumber}`)
+        await chatwootService.processIncomingMessage(phoneNumber, message, userName)
+        console.log(`📨 Mensaje entrante enviado a Chatwoot: ${phoneNumber}`)
     } catch (error) {
-        console.error('❌ Error enviando a Chatwoot:', error)
+        console.error('❌ Error enviando mensaje entrante a Chatwoot:', error)
     }
 }
 
-// Flujo principal único con integración Chatwoot
+// Función helper para enviar respuesta del bot a Chatwoot
+const sendBotResponseToChatwoot = async (phoneNumber: string, botResponse: string) => {
+    try {
+        await chatwootService.processBotResponse(phoneNumber, botResponse)
+        console.log(`🤖 Respuesta del bot enviada a Chatwoot: ${phoneNumber}`)
+    } catch (error) {
+        console.error('❌ Error enviando respuesta del bot a Chatwoot:', error)
+    }
+}
+
+// Función helper para enviar respuesta y sincronizar con Chatwoot
+const sendResponseAndSync = async (flowDynamic: any, phoneNumber: string, response: string) => {
+    // Enviar respuesta al usuario en WhatsApp
+    await flowDynamic(response)
+    
+    // Enviar la misma respuesta a Chatwoot
+    await sendBotResponseToChatwoot(phoneNumber, response)
+}
+
+// Flujo principal único con integración Chatwoot bidireccional
 const mainFlow = addKeyword<Provider, Database>(EVENTS.WELCOME)
     .addAction(async (ctx, { flowDynamic, state }) => {
         const userInput = ctx.body
@@ -68,7 +87,7 @@ const mainFlow = addKeyword<Provider, Database>(EVENTS.WELCOME)
         console.log(`📱 Mensaje recibido de ${userName} (${phoneNumber}): ${userInput}`)
         
         // Enviar mensaje entrante a Chatwoot
-        await sendToChatwoot(phoneNumber, userInput, userName)
+        await sendIncomingToChatwoot(phoneNumber, userInput, userName)
         
         const conversationState: ConversationState = state.getMyState() || {}
         
@@ -92,7 +111,7 @@ const mainFlow = addKeyword<Provider, Database>(EVENTS.WELCOME)
             
             await state.update(newState)
             const response = '🎓 ¿Qué carrera estudias?'
-            await flowDynamic(response)
+            await sendResponseAndSync(flowDynamic, phoneNumber, response)
             return
         }
         
@@ -106,7 +125,7 @@ const mainFlow = addKeyword<Provider, Database>(EVENTS.WELCOME)
                 await searchByCareer(carrera, flowDynamic, phoneNumber)
             } else {
                 const response = 'Por favor especifica la carrera. Ejemplo: "vacantes de ingeniería"'
-                await flowDynamic(response)
+                await sendResponseAndSync(flowDynamic, phoneNumber, response)
             }
             return
         }
@@ -137,10 +156,10 @@ const mainFlow = addKeyword<Provider, Database>(EVENTS.WELCOME)
             response = getFallbackResponse(userInput)
         }
         
-        await flowDynamic(response)
+        await sendResponseAndSync(flowDynamic, phoneNumber, response)
     })
 
-// Resto de las funciones (mantienen la misma lógica)
+// Resto de las funciones actualizadas para usar sendResponseAndSync
 async function handleSearchFlow(
     input: string,
     state: ConversationState,
@@ -156,7 +175,7 @@ async function handleSearchFlow(
             state.step = 'lugar'
             await stateManager.update(state)
             response = '📍 ¿En qué ciudad prefieres? (o escribe "cualquiera" para ver todas)'
-            await flowDynamic(response)
+            await sendResponseAndSync(flowDynamic, phoneNumber, response)
             break
         }
             
@@ -165,7 +184,7 @@ async function handleSearchFlow(
             state.step = 'modalidad'
             await stateManager.update(state)
             response = '💼 ¿Qué modalidad prefieres?\n\n1️⃣ Presencial\n2️⃣ Remoto\n3️⃣ Híbrido\n4️⃣ Cualquiera'
-            await flowDynamic(response)
+            await sendResponseAndSync(flowDynamic, phoneNumber, response)
             break
         }
             
@@ -193,35 +212,38 @@ async function handleSearchFlow(
 async function performSearch(filters: VacanteFilters, carrera: string, flowDynamic: any, phoneNumber: string) {
     try {
         let response = '🔍 Buscando oportunidades perfectas para ti...'
-        await flowDynamic(response)
+        await sendResponseAndSync(flowDynamic, phoneNumber, response)
         
         const vacantes = await vacantesDB.getVacantesWithFilters(filters)
         
         if (vacantes.length === 0) {
             response = '❌ No encontré vacantes con esos criterios.\n\nIntenta con otros filtros o escribe "todas las vacantes".'
-            await flowDynamic(response)
+            await sendResponseAndSync(flowDynamic, phoneNumber, response)
         } else {
-            response = `✅ ¡Encontré ${vacantes.length} oportunidades para ti!\n`
-            await flowDynamic(response)
+            response = `✅ ¡Encontré ${vacantes.length} oportunidades para ti!`
+            await sendResponseAndSync(flowDynamic, phoneNumber, response)
             
             for (const vacante of vacantes.slice(0, 5)) {
                 const vacanteInfo = vacantesDB.formatVacanteInfo(vacante)
-                await flowDynamic(vacanteInfo)
-                await flowDynamic('---')
+                await sendResponseAndSync(flowDynamic, phoneNumber, vacanteInfo)
+                
+                // Separador
+                const separator = '---'
+                await sendResponseAndSync(flowDynamic, phoneNumber, separator)
             }
             
             if (vacantes.length > 5) {
-                response = `\n📌 Hay ${vacantes.length - 5} vacantes más que cumplen tus criterios.`
-                await flowDynamic(response)
+                response = `📌 Hay ${vacantes.length - 5} vacantes más que cumplen tus criterios.`
+                await sendResponseAndSync(flowDynamic, phoneNumber, response)
             }
             
             response = '\n' + getMotivationalMessage()
-            await flowDynamic(response)
+            await sendResponseAndSync(flowDynamic, phoneNumber, response)
         }
     } catch (error) {
         console.error('Error en búsqueda:', error)
         const response = '❌ Hubo un error al buscar. Por favor intenta de nuevo.'
-        await flowDynamic(response)
+        await sendResponseAndSync(flowDynamic, phoneNumber, response)
     }
 }
 
@@ -231,29 +253,31 @@ async function searchByCareer(carrera: string, flowDynamic: any, phoneNumber: st
         
         if (vacantes.length === 0) {
             const response = `❌ No encontré vacantes para "${carrera}".\n\nPuedes intentar con otro término o escribir "buscar prácticas".`
-            await flowDynamic(response)
+            await sendResponseAndSync(flowDynamic, phoneNumber, response)
         } else {
-            let response = `✅ Encontré ${vacantes.length} oportunidades para ${carrera}:\n`
-            await flowDynamic(response)
+            let response = `✅ Encontré ${vacantes.length} oportunidades para ${carrera}:`
+            await sendResponseAndSync(flowDynamic, phoneNumber, response)
             
             for (const vacante of vacantes.slice(0, 5)) {
                 const vacanteInfo = vacantesDB.formatVacanteInfo(vacante)
-                await flowDynamic(vacanteInfo)
-                await flowDynamic('---')
+                await sendResponseAndSync(flowDynamic, phoneNumber, vacanteInfo)
+                
+                const separator = '---'
+                await sendResponseAndSync(flowDynamic, phoneNumber, separator)
             }
             
             if (vacantes.length > 5) {
                 response = `📌 Hay ${vacantes.length - 5} vacantes más.`
-                await flowDynamic(response)
+                await sendResponseAndSync(flowDynamic, phoneNumber, response)
             }
             
             response = '\n' + getMotivationalMessage()
-            await flowDynamic(response)
+            await sendResponseAndSync(flowDynamic, phoneNumber, response)
         }
     } catch (error) {
         console.error('Error:', error)
         const response = '❌ Hubo un error al buscar.'
-        await flowDynamic(response)
+        await sendResponseAndSync(flowDynamic, phoneNumber, response)
     }
 }
 
@@ -263,27 +287,27 @@ async function searchByModality(modalidad: Modalidad, flowDynamic: any, phoneNum
         
         if (vacantes.length === 0) {
             const response = '❌ No encontré vacantes remotas.'
-            await flowDynamic(response)
+            await sendResponseAndSync(flowDynamic, phoneNumber, response)
         } else {
-            let response = `✅ Vacantes remotas (${vacantes.length}):\n`
-            await flowDynamic(response)
+            let response = `✅ Vacantes remotas (${vacantes.length}):`
+            await sendResponseAndSync(flowDynamic, phoneNumber, response)
             
             for (const vacante of vacantes.slice(0, 5)) {
                 const vacanteResumen = vacantesDB.formatVacanteResumen(vacante)
-                await flowDynamic(vacanteResumen)
+                await sendResponseAndSync(flowDynamic, phoneNumber, vacanteResumen)
             }
             
             if (vacantes.length > 5) {
                 response = `\n... y ${vacantes.length - 5} más.`
-                await flowDynamic(response)
+                await sendResponseAndSync(flowDynamic, phoneNumber, response)
             }
             
             response = '\n💡 Tip: Puedes filtrar por carrera escribiendo "vacantes de [carrera]"'
-            await flowDynamic(response)
+            await sendResponseAndSync(flowDynamic, phoneNumber, response)
         }
     } catch (error) {
         const response = '❌ Error al buscar vacantes.'
-        await flowDynamic(response)
+        await sendResponseAndSync(flowDynamic, phoneNumber, response)
     }
 }
 
@@ -294,28 +318,28 @@ async function showAllVacancies(flowDynamic: any, phoneNumber: string) {
         
         if (vacantes.length === 0) {
             const response = '❌ No hay vacantes disponibles en este momento.'
-            await flowDynamic(response)
+            await sendResponseAndSync(flowDynamic, phoneNumber, response)
         } else {
             let response = `📊 **Estadísticas actuales:**\n` +
                             `Total de vacantes: ${stats.total}\n` +
-                            `Ciudades principales: ${stats.porLugar.slice(0, 3).map(l => l.lugar).join(', ')}\n`
-            await flowDynamic(response)
+                            `Ciudades principales: ${stats.porLugar.slice(0, 3).map(l => l.lugar).join(', ')}`
+            await sendResponseAndSync(flowDynamic, phoneNumber, response)
             
-            response = '\n📌 **Últimas vacantes publicadas:**\n'
-            await flowDynamic(response)
+            response = '\n📌 **Últimas vacantes publicadas:**'
+            await sendResponseAndSync(flowDynamic, phoneNumber, response)
             
             for (const vacante of vacantes.slice(0, 10)) {
                 const vacanteResumen = vacantesDB.formatVacanteResumen(vacante)
-                await flowDynamic(vacanteResumen)
+                await sendResponseAndSync(flowDynamic, phoneNumber, vacanteResumen)
             }
             
             response = '\n💡 Para ver detalles, escribe "vacantes de [tu carrera]"'
-            await flowDynamic(response)
+            await sendResponseAndSync(flowDynamic, phoneNumber, response)
         }
     } catch (error) {
         console.error('Error:', error)
         const response = '❌ Error al obtener vacantes.'
-        await flowDynamic(response)
+        await sendResponseAndSync(flowDynamic, phoneNumber, response)
     }
 }
 
@@ -327,7 +351,7 @@ async function showHelp(flowDynamic: any, phoneNumber: string) {
                      '🏠 *vacantes remotas* - Solo remotas\n' +
                      '📋 *todas las vacantes* - Ver lista general\n\n' +
                      '💡 Ejemplo: "vacantes de ingeniería en sistemas"'
-    await flowDynamic(response)
+    await sendResponseAndSync(flowDynamic, phoneNumber, response)
 }
 
 function getFallbackResponse(text: string): string {
@@ -402,7 +426,7 @@ const main = async () => {
 
         console.log('🤖 Bot de Vacantes iniciado correctamente')
         console.log('🎓 Ayudando a estudiantes a encontrar oportunidades')
-        console.log('🔗 Integración con Chatwoot activa')
+        console.log('🔗 Integración bidireccional con Chatwoot activa')
         console.log(`📡 Webhook disponible en puerto ${webhookPort}/chatwoot/webhook`)
         console.log(`🚀 Bot corriendo en puerto ${PORT}`)
         console.log(`🌐 URL del webhook: http://tu-servidor:${webhookPort}/chatwoot/webhook`)
@@ -426,4 +450,4 @@ process.on('SIGTERM', async () => {
     process.exit(0)
 })
 
-main().catch(console.error)    
+main().catch(console.error)  
