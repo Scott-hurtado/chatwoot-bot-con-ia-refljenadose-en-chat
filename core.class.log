@@ -1,0 +1,56 @@
+[handleMsg]:  {
+  type: 'text',
+  from: '5216624045267',
+  to: '15556239224',
+  body: 'Y',
+  name: 'Scott',
+  pushName: 'Scott',
+  message_id: 'wamid.HBgNNTIxNjYyNDA0NTI2NxUCABIYIDIwNDIxNTQyMjg4MzZCMzREQUJBNjUzMTcyQzMyNUYyAA==',
+  timestamp: '1754684523',
+  host: '15556239224'
+}
+[QUEUE_SE_ENVIO]:  {
+  ref: 'ans_bf0e38bd-25fc-4693-908e-3e18830b3296',
+  keyword: 'key_84769cab-262e-40f4-b5b0-096276d2c464',
+  answer: '__call_action__',
+  options: {
+    media: undefined,
+    buttons: [],
+    capture: false,
+    delay: 0,
+    idle: undefined,
+    ref: undefined,
+    nested: [],
+    keyword: {},
+    callback: true
+  },
+  refSerialize: '14b11cc104adbce957b69d9d46423ab2'
+}
+[handleMsg]:  {
+  type: 'text',
+  from: '5216624045267',
+  to: '15556239224',
+  body: 'Que rollo',
+  name: 'Scott',
+  pushName: 'Scott',
+  message_id: 'wamid.HBgNNTIxNjYyNDA0NTI2NxUCABIYIDJCN0I3RUFDQzgzRENEMjc0QkM2QTJGQjU5QjI1MUUzAA==',
+  timestamp: '1754684627',
+  host: '15556239224'
+}
+[QUEUE_SE_ENVIO]:  {
+  ref: 'ans_bf0e38bd-25fc-4693-908e-3e18830b3296',
+  keyword: 'key_84769cab-262e-40f4-b5b0-096276d2c464',
+  answer: '__call_action__',
+  options: {
+    media: undefined,
+    buttons: [],
+    capture: false,
+    delay: 0,
+    idle: undefined,
+    ref: undefined,
+    nested: [],
+    keyword: {},
+    callback: true
+  },
+  refSerialize: '14b11cc104adbce957b69d9d46423ab2'
+}
